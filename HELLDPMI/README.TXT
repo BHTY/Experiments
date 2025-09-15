@@ -49,6 +49,18 @@ The only INT 21H use in protected-mode (apart from the termination call, which
 is mandated by the DPMI spec) is for the hello world message, so its purpose
 is purely illustrative. 
 
+The purpose of HELLDPMI is twofold. First of all, it serves as a base for any
+potential DPMI projects that you or I may wish to do (I'm planning to write
+the C4 DOS Extender). Moreover, however, it serves as proof that Microsoft 
+was shipping the tools to write 32-bit DPMI applications all along. It wasn't 
+just with Phar Lap TNT (or even their 386 DOS extender which could link COFF 
+objects from the MSC32 compiler into its EXP executables); you could build them
+even then, with a bit of jury-rigging. Obviously, a "real" 32-bit executable
+format with relocations (to allow it to be loaded at an arbitrary linear base
+address but still work fine in a flat model) is preferable, so the C4 extender
+will include a PE/COFF dynamic loader in addition to the exception handlers and
+DOS extension APIs that it installs.
+
 
 Write monitor components of DDT32 first; no symbols or expression parsing at first
 Table-based assembler & disassembler
