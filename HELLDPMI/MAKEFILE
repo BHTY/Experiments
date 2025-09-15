@@ -1,0 +1,19 @@
+ASM=masm
+LINK=link
+C32=cl
+
+all: helldpmi.exe
+
+start.obj: start.asm
+	$(ASM) start.asm
+
+putch.obj: putch.c
+	$(C32) -nologo -c -Oas -Gs -Ih -Zp -Fonul -Faputch.asm putch.c
+	$(ASM) putch.asm
+
+helldpmi.exe: start.obj putch.obj
+	$(LINK) start.obj putch.obj,helldpmi.exe,helldpmi.map;
+
+clean:
+	del *.obj
+	del *.exe
