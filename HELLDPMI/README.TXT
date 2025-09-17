@@ -11,30 +11,11 @@ in your path, and then type "nmake". Ensure that the Microsoft Segmented
 Executable Linker (comes with MASM) takes precedence over the PE/COFF linker
 (comes with VC), as both are named LINK.EXE.
 
-The application's memory model is tiny, with CS=DS, but with a nonzero base
-address. A totally flat memory model would be possible, but would require
+The application's memory model is small, with CS!=DS=SS, each with a nonzero 
+base address. A totally flat memory model would be possible, but would require
 an executable format (like PE/COFF) with relocations. If one wished to build
 a DOS extender that loaded an executable in such a format, the loader stub
 could be built out of HELLDPMI.
-
-Note that some convincing may be needed to get CL386 to place variables into
-the _TEXT segment. Remember that CL386 is oriented towards a flat memory
-model where CS=DS. That is the model we're dealing with, so any C code can
-access data from an assembly module, but the compiler will output assembly
-placing any data into the data segment. There are three potential remedies
-for this:
-1.) Just accept this as the state of affairs, meaning that we'd need to 
-allocate a selector for _DATA and fiddle with segment registers to swap
-between the assembly code's data and the C code's data
-2.) Similar to #1, but put all 32-bit data in _DATA. This has the side
-effect of CS no longer equalling DS, as DS now needs to point to _DATA,
-which could cause further problems down the line
-3.) Some kind of preprocessor run over the assembly output from CL386 to
-put any data into the _TEXT segment
-
-A lot of things (C-style varargs) would probably be easier if SS=DS too, 
-but right now HELLDPMI doesn't do that. That is probably easily fixed by
-just reserving a region at the end of the data segment for the stack.
 
 The upside of using entirely Microsoft tools and storing the executable in a
 standard DOS MZ EXE is that you can take the MAP file output by LINK, feed it
@@ -60,6 +41,10 @@ executable format with relocations (to allow it to be loaded at an arbitrary
 linear base address but still work fine in a flat model) is preferable, so the 
 C4 extender will include a PE/COFF dynamic loader in addition to the exception 
 handlers and DOS extension APIs that it installs.
+
+An older version of HELLDPMI uses a tiny memory model where CS=DS!=SS, which
+causes problems as C code wanted to place data into the _DATA segment which
+was distinct from the _TEXT segment. 
 
 
 Write monitor components of DDT32 first; no symbols or expression parsing at first

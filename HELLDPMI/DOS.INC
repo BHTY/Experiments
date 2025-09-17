@@ -4,6 +4,8 @@
 ;   
 ;   Copyright (c) 2025 by Will Klees
 
+INT_DOS EQU 21H
+
 ; INT 21H entry points
 DOS_PRINT   EQU 09H
 DOS_SETVECT EQU 25H

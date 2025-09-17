@@ -20,20 +20,19 @@ TEXT ENDS
 _TEXT SEGMENT USE32 PARA PUBLIC 'CODE'              ; 32-bit code segment
 _TEXT ENDS
 
+_DATA SEGMENT USE32 PARA PUBLIC 'DATA'
+_DATA ENDS
+
 PROG_END SEGMENT                                    ; End of program mark
 PROG_END ENDS
 
 
-TEXT SEGMENT USE16 PARA PUBLIC 'CODE'
-    ERROR1T DB "ERROR: DPMI host not present!$"     
-    ERROR2T DB "ERROR: DPMI host is 16-bit only!$"  
-    ERROR3T DB "ERROR: Fatal DPMI error!$"          
-    MODESW  DD 0                                    ; Far pointer to mode switch routine
+TEXT SEGMENT USE16 PARA PUBLIC 'CODE'                          ; Far pointer to mode switch routine
 
 
 ;   MAIN procedure - The entry point of HELLDPMI. Once invoked, the entry point
 ;   executes the following steps
-;   1.) Set up tiny memory model (CS=DS)
+;   1.) Set up segment registers
 ;   2.) Release all unneeded memory back to DOS
 ;   3.) Retrieve the DPMI protected-mode switch entry point, checking if there
 ;       even is a resident DPMI server, and if it supports 32-bit clients.
@@ -42,9 +41,10 @@ TEXT SEGMENT USE16 PARA PUBLIC 'CODE'
 ;   6.) Allocate a data descriptor: this is accomplished using the "Segment to
 ;       Selector" DPMI call that takes a real-mode paragraph address and
 ;       returns a protected-mode segment selector with the same linear address
-;       (set as a data segment with a limit of 64K). We use the _TEXT segment
-;       as the 32-bit code/data area
-;   7.) Allocate a descriptor for code using the same process as #6
+;       (set as a data segment with a limit of 64K). We use the _DATA segment
+;       as the 32-bit data area
+;   7.) Allocate a descriptor for code using the same process as #6, but based
+;       at _TEXT instead
 ;   8.) Set code descriptor access rights (i.e. to specify that the code
 ;       segment is a use32 code segment)
 ;   9.) Set all of the data segment registers to the data selector obtained in
@@ -55,14 +55,16 @@ TEXT SEGMENT USE16 PARA PUBLIC 'CODE'
 ;   - ES=DS: Paragraph address of PSP   
 
 MAIN PROC FAR PUBLIC
-    PUSH CS                             ; 1. Set tiny memory model
+    ASSUME DS:_DATA
+
+    PUSH _DATA                          ; 1. Set memory model
     POP DS
 
     MOV AH,DOS_SETBLK                   ; 2. Free memory
     MOV BX,PROG_END
     SUB BX,STACK
     ADD BX,10H
-    INT 21H
+    INT INT_DOS
 
                                         ; 3. Obtain DPMI entry point
     MOV AX,((W386_Int_Multiplex SHL 8) OR W386_Get_PM_Switch_Addr)
@@ -75,7 +77,7 @@ MAIN PROC FAR PUBLIC
     MOV WORD PTR [MODESW+2],ES
     MOV BX,SI                           ; 4. Allocate memory for DPMI data
     MOV AH,DOS_ALLOC
-    INT 21H
+    INT INT_DOS
     JC error3
     MOV ES,AX
     MOV AX,1                            ; 5. Switch to protected mode (32-bit)
@@ -83,7 +85,7 @@ MAIN PROC FAR PUBLIC
     JC error3
                                         ; 6. Allocate descriptor for data
     MOV AX,((Int31_Sel_Mgt SHL 8) OR SelMgt_Seg_To_Sel)
-    MOV BX,_TEXT
+    MOV BX,_DATA
     INT 31H
     MOV SI,AX
                                         ; 7. Allocate descriptor for code
@@ -110,8 +112,8 @@ MAIN PROC FAR PUBLIC
     RETF
 
 done16:
-    MOV AH, 4Ch  ; DOS function to terminate program
-    INT 21h
+    MOV AH, DOS_EXIT
+    INT INT_DOS
 
 error1:
     MOV DX,OFFSET ERROR1T
@@ -139,28 +141,44 @@ _TEXT SEGMENT USE32 PARA PUBLIC 'CODE'
 
 EXTRN _putch:NEAR
 
-;   MAIN32 procedure - The 32-bit entry point that prints hello world and
-;   exits.
+;   MAIN32 procedure - The 32-bit entry point that sets up a 32-bit stack,
+;   prints hello world and exits.
 ;
 ;   Execution environment:
-;   - CS: use32 code selector based at _TEXT32
-;   - DS=ES=FS=GS: data selector based at _TEXT32
-;   - SS: ??? a dpmi-provided stack?
+;   - CS: use32 code selector based at _TEXT
+;   - DS=ES=FS=GS: data selector based at _DATA
 
 MAIN32 PROC NEAR PUBLIC
+    MOV AX,DS                   ; Set up 32-bit stack
+    MOV SS,AX
+    MOV ESP,OFFSET STACK32
+
     MOV EDX,OFFSET hello
-    MOV AH,9
-    INT 21H
+    MOV AH,DOS_PRINT
+    INT INT_DOS
 
     PUSH '!'                    ; Print an exclamation point from C!
     CALL _putch
     ADD ESP,4
 
-    MOV AH,4CH
-    INT 21H
+    MOV AH,DOS_EXIT
+    INT INT_DOS
 MAIN32 ENDP
 
-hello db "Hello from 32-bit protected mode!$"
 _TEXT ENDS
+
+
+
+_DATA SEGMENT USE32 PARA PUBLIC 'DATA'
+    ERROR1T DB "ERROR: DPMI host not present!$"     
+    ERROR2T DB "ERROR: DPMI host is 16-bit only!$"  
+    ERROR3T DB "ERROR: Fatal DPMI error!$"          
+    MODESW  DD 0          
+    hello db "Hello, world from 32-bit protected mode!$"
+
+    ALIGN 4
+    dd 64 dup (?)
+    STACK32 LABEL BYTE
+_DATA ENDS
 
 END MAIN
