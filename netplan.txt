@@ -28,7 +28,15 @@ Some games, as a performance optimization, maintain a buffer of multiple locally
 SERIALIZATION OF GAME STATE
 At its core, the game state includes the positions, orientations, and other information (HP?) of all objects in the game world. Objects that must be synchronized across all game sessions include other player spacecraft, and laser bolts. Particle effects need not be synchronized as they aren't crucial to gameplay, and would consume large amounts of bandwidth. Ideally, de-sync will also be minimal enough that particle effects will not be visibly incongruous.
 
-SmallTalk programs can be serialized into "images" and resumed easily. If the game uses a similar object model, perhaps that could be the form of serialization.
+SmallTalk programs can be serialized into "images" and resumed easily. If the game uses a similar object model, perhaps that could be the form of serialization. 
+
+
+INPUT SMOOTHING
+Due to lost packets, a player who is continually holding their joystick all the day to the left could have packets reach the server for ticks 104 and 106, but not 105. Some degree of this input loss is acceptable, but if it becomes excessive, it would be problematic. As such, there are options other than simply acting as if the player pressed no input on tick 105
+- Continue holding down their last input (perhaps only for a certain number of ticks afterwards)
+- Interpolation
+
+This is a separate issue to input smoothing for digital inputs (which currently map to 100% on the joystick in whatever directions are being pressed), but the other could also be worth looking into.
 
 
 RELIABLE TRANSMISSION CHANNEL
@@ -37,4 +45,4 @@ Certain control messages must have reliable delivery and acknowledgement, such a
 
 
 TRENCH - a small Windows NT 3D simulator
-
+Infinite trench run
