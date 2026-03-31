@@ -1,0 +1,40 @@
+A TREATISE ON NETWORKED SIMULATION
+==================================
+The game utilizes a client/server approach to support N-way multiplayer, where each of the N players ("clients") connect to a single machine ("server") and only exchange information directly with the server.
+
+In a networked application, delays and transmission errors can cause packets to arrive out-of-order, late, or not at all. This is usually compensated for via reliable protocols such as TCP, but for a real-time game application, this is unacceptable, so UDP is used.
+
+The client maintains several important pieces of information:
+- Current time in "ticks" (the fixed unit of time at which the game executes)
+- The last "authoritative" game state received from the server, along with its timestamp
+- The current local game state, which is used for display purposes
+- A queue of all input events that are newer than the last authoritative game state
+
+Every tick, the client samples the current inputs, places them into the queue, advances the local game state, and sends the current input to the server.
+
+The server maintains the "master" state of the game. To compensate for transmission delays, the server runs a certain number of ticks behind the clients, with the idea being that it receives data from clients before it's needed. When inputs are received from clients, if they are older than the current tick (i.e. arrived late), they are thrown away. If client inputs fail to reach the server altogether, they are also simply discarded. If not, they are stored into a queue of inputs.
+
+Say for example that the server is operating 10 ticks behind the clients, and is currently on tick 90. It receives inputs for ticks 91, 92, 93, etc. When the server simulates tick 91, it dequeues all inputs that are stamped for tick 91 and uses them to simulate the game state.
+
+
+RESYNCHRONIZATION
+Sometimes, the server must push a new "authoritative" game state. When clients receive this, they throw away all inputs in the queue that are older than the timestamp of the authoritative game state, then store the newly received data in where the old authoritative game state went, and then simulate from its timestamp to the present using any inputs remaining in the queue.
+
+Sending an entire game state is a somewhat expensive operation and may want to be reduced. As such, in most cases, it may be sufficient to have the server act merely as a relay to send inputs from players to each other, only occasionally sending the entire game state. If the client receives an input from another player that is older than the current tick but newer than the authoritative game state, it will be placed into the queue and the game will be resimulated from the authoritative tick to the present.
+
+Some games, as a performance optimization, maintain a buffer of multiple locally-simulated states in-between the last authoritative game state and the present, to minimize the processing required to resimulate, as the game can start from a time closer to the present.
+
+
+SERIALIZATION OF GAME STATE
+At its core, the game state includes the positions, orientations, and other information (HP?) of all objects in the game world. Objects that must be synchronized across all game sessions include other player spacecraft, and laser bolts. Particle effects need not be synchronized as they aren't crucial to gameplay, and would consume large amounts of bandwidth. Ideally, de-sync will also be minimal enough that particle effects will not be visibly incongruous.
+
+SmallTalk programs can be serialized into "images" and resumed easily. If the game uses a similar object model, perhaps that could be the form of serialization.
+
+
+RELIABLE TRANSMISSION CHANNEL
+Certain control messages must have reliable delivery and acknowledgement, such as a player disconnecting or joining. How to handle timeouts?
+
+
+
+TRENCH - a small Windows NT 3D simulator
+
