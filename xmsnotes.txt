@@ -1,0 +1,211 @@
+Windows & XMS Memory
+====================
+Windows 95 and above are known not to function with any XMS drivers other than
+Microsoft's own (i.e. the version of HIMEM.SYS included with the OS, or the
+equivalent XMSMMGR.EXE). In fact, Microsoft had already cautioned users
+against mixing and matching incompatible versions of HIMEM.SYS and EMM386 [1],
+as they must cooperate in a very particular way to make everything work nicely.
+
+Usually, when loading a DPMI host, the demands of the XMS driver are somewhat
+modest. It simply has to allocate all available XMS memory to later be
+parceled out as extended memory blocks via DPMI. Any existing XMS blocks are
+still valid and can still be accessed, but you won't be able to allocate any
+new XMS memory (not that there's much reason to in a protected-mode program).
+
+Note that properly, in Microsoft's hierarchy of different standards for 
+handling the extended memory capabilities of 80386 machines, VCPI would sit
+atop XMS (meaning that a VCPI server, which is a special type of LIMulator,
+would allocate the extended memory) and then the DPMI host would use VCPI to
+switch itself into protected-mode and provide protected-mode services, but
+that's beside the point.
+
+In any event, Windows (and indeed, EMM386) is somewhat special. Any LIMulator
+needs extended memory to later parcel out and map as expanded memory. Early on,
+this memory would likely come from INT15, since EMM386/CEMM actually predates
+HIMEM, but eventually, extended memory would be allocated using XMS
+(Microsoft's documentation even lists a requirement to load HIMEM.SYS before
+EMM386). Note that you can actually specify on the command line a certain
+amount of extended (XMS) memory to still be available after EMM386 loads,
+and I'm also not entirely sure how existing XMS handles are supported under
+EMM386 given the issues I describe in the next paragraph.
+
+Meanwhile, most XMS drivers utilize unreal mode to copy extended memory blocks.
+On the 80286, they can use LOADALL to set segment bases above 1MB, while on
+the 80386 one can simply switch to protected-mode, set segment limits to 4GB,
+switch back to real mode, and then do a rep movsd. The problem is that these
+tricks cause general protection faults in Virtual-8086 Mode. This isn't a 
+problem for most DPMI hosts, which switch back to real mode for handling MS-DOS
+code, but it precludes the XMS driver from running inside of the virtual 
+machine. Drivers that use the AT's INT15 extended memory copy interface could
+theoretically work, but only for memory below 16MB (due to a limitation of the
+interface), and only if the 386 control program implemented that interface
+(which I'd fear issues from relating to physical vs linear addresses, and just
+general system integrity/security issues relating to, so I don't think most
+386 control programs really supported this interface).
+
+For a while, this wasn't a huge problem; Windows/386 does provide any XMS 
+services to V86 callers (except for HMA management to the System VM), but 
+Windows 3 and later do provide XMS services.
+
+Most of the open-source LIMulators such as JEMM386 appear to address this by
+also providing XMS services, essentially being a combined XMS/EMS solution.
+
+However, Windows does something interesting due to a key requirement of its
+nature as a DOS multitasker. It needs to provide each DOS virtual machine with
+its own private state, making it think that it has total control over the 
+machine, but also keep certain bits of global state coherent between all DOS
+virtual machines (mostly relating to drivers/TSRs loaded before Windows
+started). By the time of Windows 3, enough drivers allocated extended memory
+that any XMS handles allocated before Windows started needed to remain valid
+(and be usable from any VM in global memory) while Windows was running.
+
+It solved this by allocating every single XMS handle in the system on startup.
+[2] It doesn't do this, as you might think, to actually allocate extended
+memory for use by the system later, since each allocation is for 0 bytes. 
+Windows is only doing this to exhaust all of the available XMS handles, to get
+a list of XMS handles that are guaranteed not to be in use before Windows
+starts, so those are free to be given out by Windows' internal XMS driver,
+being per-VM local handles, so naturally Windows' own code is responsible for
+handling them. 
+
+However, if the handle is not one that Windows recognizes, they are assumed to
+be global XMS handles and passed to the existing XMS driver [3]. However, how
+could such an XMS driver run under Windows? All of the VMs run in Ring 3, making
+the aforementioned unreal-mode trickery impossible.
+
+The answer would likely be that Microsoft's own XMS drivers cooperate with
+Windows in some undocumented way, possibly with the XMS drivers receiving an 
+INT 2FH notification of Windows loading and then adjusting their behavior to
+actually run under Windows. Raymond's article describes a "brain-dump"
+interface provided by some XMS drivers that Windows 3 could take advantage of
+if available, so it's not out of the realm of believability.
+
+There's also the matter of detecting memory to make part of Windows' physical
+memory pool. HIMEM.SYS allocates memory from the bottom of extended memory
+(technically not actually the beginning, actually starting at 1MB+64K so as not
+to collide with the HMA) on up (I believe using a VDISK header), which is in 
+opposition to the INT15 style of memory allocation where you allocate memory 
+from the top down, hooking INT15 to report less and less extended memory 
+installed. 
+
+Once you make your first XMS allocation, HIMEM hooks INT15 to report 0 
+extended memory installed (this isn't always true; you can tell HIMEM to keep
+some INT15 memory reserved, but there's a caveat - if you reserve 256K of INT15
+memory, then that memory starts at 1MB, and even HIMEM starts at 1MB+256K, but
+that makes the HMA unavailable since the INT15 memory will collide with it).
+This is because HIMEM is grabbing all of extended memory and now has that as
+part of its memory pool to hand out on demand. 
+
+Windows/386 uses INT15 for memory detection (I think), since it's not really
+designed to cooperate with XMS. My own experiments with this were somewhat
+puzzling; Windows/386 2.11 (which included HIMEM) did seem to be able to start
+with XMS memory allocated, but it would corrupt the contents of that memory. As
+part of its memory test, it would overwrite the first two DWORDs of every 64K
+memory block [4]. However, if I allocated memory using INT15, that would be
+untouched by Win386. It's possible that it only performs the memory test to
+probe how much memory is available if INT15 returns 0, or that if INT15 returns
+a nonzero quantity, it only probes up until the end of INT15-reported memory.
+
+In any event, Windows 3.0 and later, as discussed earlier, needed to be able to
+not only give out XMS memory to any callers in DOS boxes, but also respect
+existing XMS allocations made prior to Windows startup. This requires some
+means of detecting where the XMS memory is (as this XMS memory must not only be
+considered off-limits for Windows to allocate later as extended memory, but
+also mapped globally in all DOS virtual machines
+
+This suggests some secret interface between Windows and HIMEM.SYS.
+
+
+BEHAVIOR OF XMS MEMORY UNDER WINDOWS 3 AND ABOVE
+XMS supports an API call allowing the programmer to "lock" an extended memory
+block in place, theoretically preventing it from moving. Normally, XMS blocks
+are addressed using opaque "handles", but if extended memory were to be used 
+for DMA, for example, one would need a fixed address to send to the DMA 
+controller. The "lock" call provides the address. In XMS version 2.0, the
+linear address of the extended memory block is returned. In XMS version 3.0,
+the physical address of the extended memory block is returned. Right off the
+bat, there was enough confusion on all sides (both XMS driver vendors and 
+authors of applications using XMS) that this interface was rarely used 
+correctly, and not even guaranteed to be implemented correctly.
+
+When operating under "raw" DOS, there's no difference between physical and 
+linear addresses, so such problems could fall under the rug. Even in EMM386,
+it usually lined up, but in multitaskers such as Windows, this could cause
+problems. The Virtual DMA Services (VDS) standard helped smooth over some of
+the issues with programming DMA in these environments, but it wasn't a total
+solution.
+
+First of all, in Windows 3.0 and above, you cannot lock XMS handles allocated
+after Windows started. The reasoning may not be clear yet, but it should become
+clear soon.
+
+However, when it comes to XMS handles allocated *before* Windows began, there are some restrictions. Remember that XMS handles most certainly can be locked 
+before Windows begins, so if a program locks an XMS handle and obtains an 
+address, it should be able to assume that that address will remain valid after
+Windows starts. In fact, an XMS handle can be locked multiple times, and one 
+could reasonably expect that the values (other than the lock count) shouldn't 
+change after locking it multiple times.
+
+What happens with XMS handles allocated before Windows starts, then? Well, on 
+my Windows 3.1 system, XMS version 3.0 is reported, meaning that I'm dealing
+with physical addresses. I allocated an XMS handle A908, and then locked it,
+getting a physical address of 310000 (the lowest I've seen is 110000, see 
+above, but I had SMARTDRV and some other device drivers loaded). When I loaded
+into Windows, I could still lock the block and got the same value. I then wrote
+a 32-bit DPMI test app that is capable of dealing with linear addresses
+directly, and sure enough, trying to use the address 310000 caused a page
+fault. However, using the "Map Physical Address To Linear Address" service in
+DPMI, I was able to get the linear address 710000. 
+
+The reason for this has to do with a quirk of the design of Windows/386 and
+enhanced Windows 3.x. Dating all the way back to Windows/386, there's an API
+call "MapLinear" which accomplishes fundamentally the same purpose. Enhanced
+Windows 3.x provides a VMM service "MapPhysToLinear" which is callable by VxDs,
+and the DPMI server inside of Win386 presumably provides a very thin wrapper
+over that function. On Windows/386 and enhanced Windows 3.x, only the first 4MB
+(excluding the first 64KB due to some 80386 errata which causes it to be 
+identity-mapped) of address space is per-VM, meaning that switching address
+spaces, rather than being a matter of altering the page directory base register
+(CR3), actually involves changing the first DWORD of the page directory to swap
+out the mappings for that low 4MB, and everything else is considered global.
+
+This was considered fine at the time, since 4MB was well above the 1MB limit 
+that real-mode DOS apps ran into, and provided breathing room for the HMA. 
+After that per-VM memory, at the 4MB line, sits the first 16MB of physical
+memory, identity-mapped. In the time period of Windows/386 and Windows 3.0, 
+this was probably just considered enough for your entire machine (and sure 
+enough, those versions max out at 16MB of usable memory) since that was an 
+outrageous amount of memory at the time, but even later, VxDs mainly only 
+needed to convert physical addresses to linear to access memory-mapped I/O, 
+which due to the design of the ISA bus, usually sat below 16MB. Anyways, the
+address 710000H = 310000H + 400000H, and 40000H is 4MB. The MapPhysToLinear
+function just added 4MB to the address that you put into it back in those 
+days. Note that any DPMI memory that you allocated came out of the global
+memory region above 2GB, which is where the VxDs lived. In Windows 95, 
+MapPhysToLinear works differently, since the address space between 4MB and 2GB
+isn't global anymore, as the Win32 arena sits there (all Win32 processes share
+the low 4MB of address space, as that's where Win16 lives, but they have a 
+private Win32 arena).
+
+Back to why XMS memory allocated during Windows' runtime can't be locked - 
+it's because it isn't guaranteed to be physically contiguous, so obtaining its
+physical address (as XMS version 3.0 requires) would be meaningless. DPMI
+memory (which may come from the same pool, I'm not sure) can be locked, but
+there's no API call to query the physical address of a linear memory block in
+DPMI, likely for precisely this reason.
+
+Note that curiously enough, in Windows NT, XMS version 2.0 is implemented, and
+blocks allocated can be locked. Of course, NT doesn't have to remain coherent
+with DOS state (and continue to keep its own state in sync with DOS), and I
+believe that the XMS memory is only valid within that DOS box (and only valid
+as long as a DOS program is running; if you launch a DOS app from CMD.EXE and
+then it exits and you start a new app, I believe that the XMS handle is gone,
+since the NTVDM has exited, but if you start from COMMAND.COM, then execute a
+DOS app that allocates XMS memory, and then it returns and you start a new app
+from that COMMAND.COM instance, it would still be valid - I think TSRs also 
+only work if started from COMMAND.COM, though I'm not sure).
+
+1: https://hwiegman.home.xs4all.nl/msdos/74977.htm
+2: https://devblogs.microsoft.com/oldnewthing/20160808-00/?p=94036
+3: https://devblogs.microsoft.com/oldnewthing/20160503-00/?p=93397
+4: https://virtuallyfun.com/2025/09/06/unauthorized-windows-386/
