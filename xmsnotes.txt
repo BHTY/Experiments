@@ -139,7 +139,8 @@ First of all, in Windows 3.0 and above, you cannot lock XMS handles allocated
 after Windows started. The reasoning may not be clear yet, but it should become
 clear soon.
 
-However, when it comes to XMS handles allocated *before* Windows began, there are some restrictions. Remember that XMS handles most certainly can be locked 
+However, when it comes to XMS handles allocated *before* Windows began, there are 
+some restrictions. Remember that XMS handles most certainly can be locked 
 before Windows begins, so if a program locks an XMS handle and obtains an 
 address, it should be able to assume that that address will remain valid after
 Windows starts. In fact, an XMS handle can be locked multiple times, and one 
@@ -204,6 +205,28 @@ since the NTVDM has exited, but if you start from COMMAND.COM, then execute a
 DOS app that allocates XMS memory, and then it returns and you start a new app
 from that COMMAND.COM instance, it would still be valid - I think TSRs also 
 only work if started from COMMAND.COM, though I'm not sure).
+
+
+MANAGING EXTENDED MEMORY
+IBM DOS 3.0 introduced a device driver known as VDISK.SYS, which supported
+creating a high-speed RAM disk device (i.e. a block storage device with a
+filesystem, but backed by high-speed RAM). It was one of the first uses of
+extended memory, and used the INT15 AT BIOS functions to copy data to/from
+extended memory. It also monopolized INT15 extended memory, meaning that it
+would report 0 extended memory to any further applications that asked.
+
+However, IBM wasn't so inconsiderate as to be ignorant of future
+applications that may wish to use extended memory while coexisting with
+VDISK. As a result, IBM introduced the "VDISK header", which is a small
+header at the start of extended memory indicating that <n>K of RAM is in
+use. If a header is there, the program checks <N>K further for another
+header. If no such header exists, the program inserts one of its own.
+
+VDISK was ultimately replaced by Microsoft's RAMDRIVE.SYS, which fulfilled
+fundamentally the same purpose. Initial versions of RAMDRIVE allocated
+extended memory via INT15 (I'm not sure if it did this top-down or via
+VDISK headers), but by DOS 5, it used XMS.
+
 
 1: https://hwiegman.home.xs4all.nl/msdos/74977.htm
 2: https://devblogs.microsoft.com/oldnewthing/20160808-00/?p=94036
