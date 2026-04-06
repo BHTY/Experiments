@@ -1,0 +1,94 @@
+MUSINGS ON WIN+4
+================
+It's somewhat common knowledge that Microsoft released a multitasking version
+of MS-DOS in 1986. Bearing the version number 4.0, it was in truth based on DOS
+2, originally called DOS 3, and renamed to DOS 4 as a result of the "real" 
+DOS 3. Due to running in real-mode, with only 640K of total memory, a lack of
+multiple address spaces, and no hardware virtualization, it was a somewhat
+ridiculous proposition as a commercial product. Of course, as Larry Osterman
+attested, the purpose wasn't really to multitask a bunch of MS-DOS programs;
+Microsoft knew that in a world where so few apps were well-behaved, that
+wasn't feasible. Microsoft pitched it to OEMs of specialized PCs that 
+integrated unique functionality (including a telephone switch), with the idea
+being that such a machine could leverage the multitasking to both serve as a
+regular DOS PC and, in the background, perform its other functions. Ultimately,
+Microsoft began an effort to port Multitasking MS-DOS 4.0 to the 80286's
+protected mode in an attempt to make it more useful, birthing DOS 5 (what 
+would eventually be known as OS/2).
+
+OS/2's shared DNA with Multitasking MS-DOS 4 is obvious. Both utilize the New
+Executable (NE) format, which supports dynamic linking (LINK4.EXE; the NE 
+linker seen in early Win16 SDKs, is so named for the format coming from MTDOS),
+both use a rewritten COMMAND.COM written in C (which ultimately lives on in
+Windows NT), and both can run only one "old" MS-DOS app (with somewhat flaky
+compatibility even then) alongside the multitasked "new" applications. Also, 
+the Session Manager in MTDOS bears a strong resemblance to the Program 
+Selector in beta versions of OS/2.
+
+One of the supposed killer apps of Multitasking MS-DOS 4.0, however, never
+materialized, likely due to the project never achieving anything approaching 
+the mainstream success that would have justified such an effort: Win+4.
+
+It is well-known that 16-bit Windows was cooperatively-multitasked, meaning
+that a new task doesn't get to run until a previous task explicitly releases
+control. The Windows programming model is "event-driven", meaning that as a
+general rule, programs don't do any processing until prompted to do so by 
+the system. As such, the program sits in a "message loop", calling functions
+such as GetMessage to get a message and then process it in the window 
+procedure. GetMessage is one such synchronization point that yields control,
+allowing the scheduler to let a new task run. As long as all of the apps play
+nice, this works pretty well.
+
+However, it's also well-documented that Microsoft had planned to allow use of
+the Multitasking MS-DOS 4.0 scheduler to preemptively multitask Windows 1.0
+tasks, producing a system known as "Win+4", though this never came to pass.
+Before examining the challenges inherent in implementing Win+4, let's look at
+what did come out that's at least related to it. First of all, at least one
+OEM did get Windows running on Multitasking MS-DOS. Unfortunately, it's
+somewhat underwhelming, as Windows just runs as "the old MS-DOS app", meaning
+that it's just regular Windows, running the same way it would on any other DOS
+system. What Win+4 really turned into, however, was the OS/2 Presentation
+Manager. OS/2's GUI system was obviously inspired by and based on Windows, and
+naturally it is also preemptively-multitasked.
+
+However, why would Win+4 have been so prohibitive to implement?
+
+Well, the problem is that Windows essentially executed as a monolith; all of
+your tasks lived together, shared the DLLs, and global variables were
+everywhere. This was fine because it was expected that a Windows API call
+would never be interrupted, but with a preemptive-multitasking setup, this
+would happen. Without a major rearchitecting of the entire core of the OS,
+this would be impossible.
+
+Microsoft, in fact, never made Win16 reentrant. On Windows 95, for instance,
+only one task can be inside of Win16 at a time. When a task enters Win16, it
+claims the Win16Mutex, and when it leaves Win16, it releases the Win16Mutex.
+This worked reasonably well because Win16 processes remained cooperatively-
+multitasked with respect to each other, with the Win16Mutex held while any
+one of them is actively running, and there's explicit synchronization points
+for Win32 tasks to enter and exit Win16. This was done for several reasons.
+First of all, there were size issues; adding a bunch of locks everywhere 
+would have made the code bigger and slower. There were also time issues; the
+Windows 95 project shipped late as it was. And of course, there were 
+compatibility issues, as many Win16 apps would rely on very precise patterns
+of timing and message delivery order that could be guaranteed by Win16.
+
+There were two preemptive implementations of Win16, but they're sort of
+cheating. First of all, the Windows Libraries for OS/2 (nee Source Migration
+Kit, nee Porthole) allow Win16 apps to execute preemptively. This is done by
+giving each process its own private versions of the Win16 DLLs that are 
+implemented on top of the OS/2 Presentation Manager APIs. Amusingly enough,
+when discussing Windows 3.0 application support for OS/2 2.0, IBM actually
+expressed a desire to run each Windows 3.0 app in its own VDM, and that's
+actually pretty close to the situation under WLO, since each application
+executes in its own address space (though that can improve stability, it also
+precludes certain kinds of inter-process communication involving shared
+memory). Of course WLO wasn't fully-compatible due to not allowing MS-DOS
+interrupt calls, but it was impressive. Running each app in its own VDM would
+have been RAM-prohibitive at the time, however.
+
+That was an option under Windows NT, however. You could run each Win16 app
+under its own instance of WOW/NTVDM. Each would execute with its own version of
+the Windows KERNEL sitting on top of DOS, with stub DLLs for GDI and USER that
+simply call into GDI32 and USER32. This enabled seamless desktop sharing (only
+possible on OS/2 through display driver trickery).
