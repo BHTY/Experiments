@@ -92,3 +92,24 @@ under its own instance of WOW/NTVDM. Each would execute with its own version of
 the Windows KERNEL sitting on top of DOS, with stub DLLs for GDI and USER that
 simply call into GDI32 and USER32. This enabled seamless desktop sharing (only
 possible on OS/2 through display driver trickery).
+
+Note that some creative tricks *could* have potentially made it possible for
+some degree of address space isolation, by switching EMS page frames between
+processes and treating expanded memory as being divided into chunks for each
+process. It would be clunky (and obviously require an EMS/LIM driver), but
+could work, though it wouldn't solve the problem of reentrancy for the Windows
+kernel and other core components.
+
+Sidenote: Many DOS device drivers loaded before Windows are treated as global
+data, so their pages are shared across all VMs (some, like DOSKEY, are instance
+data, but generally anything controlling a physical device is shared). What
+happens if multiple VMs try to access the same device? I assume that they just
+have to be Windows-aware and enter a critical section
+
+Apparently in Windows/386, INDOS was a critsec (well, in DOS it is, but also
+in Win/386)
+
+What about for stuff like INT13? Having the BIOS routine try to read the disk,
+then get interrupted, have another VM try to talk to the disk, and then back
+to the first would probably screw things up. Though at least INT13 has a VxD
+so maybe that enters the critical section.
