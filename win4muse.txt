@@ -106,8 +106,13 @@ data, but generally anything controlling a physical device is shared). What
 happens if multiple VMs try to access the same device? I assume that they just
 have to be Windows-aware and enter a critical section
 
-Apparently in Windows/386, INDOS was a critsec (well, in DOS it is, but also
-in Win/386)
+Apparently in Windows/386, the INDOS flag was a critical section. In MS-DOS,
+on entry to INT21, INDOS is incremented (and decremented on exit). As such,
+this prevents multiple VMs from being inside INT21 at the same time, since
+VMs won't be rescheduled while INDOS is incremented. This is a pretty clunky
+way to do things though. On Windows 3.0 and above, entering the critical
+section (via a new API) doesn't disable multitasking, it just blocks any
+other VMs that try to enter it.
 
 What about for stuff like INT13? Having the BIOS routine try to read the disk,
 then get interrupted, have another VM try to talk to the disk, and then back
