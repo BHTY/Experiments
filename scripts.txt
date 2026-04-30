@@ -1,0 +1,314 @@
+Research into developing a bytecode/scripting engine 
+
+Inspirations:
+SmallTalk?
+Batch?
+Basic/Pascal?
+ZZT-OOP?
+
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+
+\title{Control Language Reference (Preliminary)}
+\author{William Klees}
+\date{First Created: March 15 2026 \\ Last Edited: March 15 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+\subsection{Purpose of this Document}
+This is a technical document describing the Control programming language. It is not a tutorial, nor does it provide detailed examples of useful Control code. \newline
+
+\noindent This document assumes that the reader has a working knowledge of procedural, imperative, and object-oriented programming paradigms, and some languages that implement them. Examples of languages that implement all of the above paradigms include C++, C\#, Java, and Objective-C.
+
+\subsection{Design Goals of Control}
+Control was designed to fill the role of a simple, lightweight, embeddable scripting language that provides for complex interactions between objects. Two major use cases were envisioned for a language of this type: a 3-D game engine, and a tool for creating graphical-user-interface (GUI) components. These use cases resulted in the following design goals:
+\begin{itemize}
+    \item To provide Java-style programming simplicity and object orientation. In a UI toolkit, for example, different controls on the screen send messages/events to each other, which can be overridden with custom handlers to execute different functions. You can even combine multiple basic controls into a large control which can in turn be embedded into a window and take in data and produce output. A game engine, on the other hand, can also use inheritance to have one type of object extend and modify the behaviors of another object (for example, an Entity can become a Fighter jet, with multiple sub-classes of Fighter jets with different AI behaviors).
+    \item To enable rich, high-level programming in terms of objects and interactions rather than bits, bytes, and pixels. As such, there will always be a "driver" program written in a language such as C that sends messages to Control objects in order to execute the logic. Executing code with reference-counted garbage collection allows programmers to focus on this logic rather than on the intricacies of memory management.
+    \item Some kind of interoperability with the unmanaged environment was required to allow the sandboxed code to perform certain low-level functions with no loss in flexibility.
+    \item To be incredibly fast - the compiler assumes a lot of work that would normally be delegated to the runtime in order to facilitate this, and a generally minimal language design also helps
+\end{itemize}
+
+\noindent As such, Control implements an actor-based programming model, where every object is an "actor" that can modify its own state in a procedural/imperative way, but can only affect each other via SmallTalk-style message-passing. The terms "actor" and "object" are used interchangeably in this document to refer to what would be considered an object in Java parlance.
+
+\subsection{Rationale}
+One may wonder what the purpose is for designing Control, given that many scripting languages already exist that can be embedded into a C/C++ application, including those outlined in this non-comprehensive list:
+\begin{itemize}
+    \item Microsoft Windows Script Host (WSH) / Active Scripting languages (JScript, VBScript, etc.)
+    \item Microsoft Visual Basic for Applications
+    \item Lua
+    \item Angel
+    \item Wren
+\end{itemize}
+
+\noindent However, none of these options are suitable for the applications that Control was intended for. The first two options are heavily tied to Microsoft Windows, and as such unsuitable for other platforms such as MS-DOS and Linux. All of the options suffer from being very slow, carrying very heavy and bloated runtimes that take large amounts of memory and CPU time. The Microsoft languages, for example, use late-binding dynamic dispatch via the IDispatch COM interface, which resolves method/property names at runtime. The COM object model is also somewhat cumbersome, and tying the game to it, with all of the SAFEARRAYs, VARIANTs, and IUnknowns that come with it would add significant bloat to the applications. \newline
+
+\noindent The desire for speed, even on low-end systems such as 80386SX processors, while operating alongside a game in real-time, places severe burdens on the language. The lack of first-class support for vectors, quaternions, or fixed-point numbers in the above languages also disqualifies them. For its game applications, Control can almost be considered a lightweight version of QuakeC or UnrealScript.
+
+\section{The ROB Virtual Machine}
+An understanding of the Control programming language is incomplete without an understanding of the ROB Virtual Machine that it executes on. ROB is an acronym for "Rendering Object Bytecode", which is what Control compiles down to. Without proceeding too deeply into the weeds, ROB is a simple stack-based virtual machine similar to the Microsoft CLR or Java VM, and supports the following basic data types
+\begin{itemize}
+    \item Integers: on the stack, all integers are 32-bit, but when stored in variables or arrays, they can be 8-bit, 16-bit, or 32-bit (being truncated when stored and sign- or zero- extended when loaded). Separate operations are also available for fixed-point multiply and divide.
+    \item Vector: Treated on the stack as a set of 3 fixed-point numbers, a vector represents a coordinate or direction in 3-space, and special vector operations are supported in the ROB VM.
+    \item Quaternion: Similar to vectors, they are stored as multiple (4) fixed-point numbers, with special operations supported for them in the ROB VM.
+    \item Object Reference: A pointer representing the address of internal data structures for the desired object. One type of object is pre-defined and has special treatment within the ROB VM - an array, which is backed by a traditional memory buffer and can store a desired number of elements of any VM type (including additioanl references). Currently, only single-dimension arrays are supported.
+\end{itemize}
+
+\noindent The ROB virtual machine also supports the following storage locations for data, with instructions to get information in and out of them:
+\begin{itemize}
+    \item Operand stack: A temporary workspace where values are pushed and popped
+    \item Local variables: Variables local to the current stack frame can be read/written
+    \item Object fields: Variables global to the object can be read/written
+    \item Array: Values at specific indices within the array can be get/set
+\end{itemize}
+
+\noindent 
+
+\noindent Languages other than Control could be targeted to the ROB VM, but they would be effectively equivalent in terms of feature set and differ only in syntax, similarly to Kotlin and Java or C\# and Visual Basic .NET. Since Control and the ROB VM are being designed together, references to them will sometimes be interchanged, but fundamentally, the ROB VM provides the fundamental, low-level building blocks upon which Control is built.
+
+\subsection{Class Overview}
+Being a message-passing-based programming language, much of the object model in Control blurs the line between classes and interfaces. After all, objects have no knowledge of the internal layout or implementation of other objects, and communicate solely via messages (the equivalent of method calls in other languages). As such, any object that implements the same set of messages could be slotted in for another comparable object, even if their internal layouts and implementations are entirely different. \newline
+
+\noindent The object model of Control also provides for interfaces and abstract classes. Interfaces are essentially just a compile-time check to ensure that a class implements all of the message handlers that it needs to, while an abstract class is a class that cannot be used directly, as it is missing implementations for messages that its children need to handle. \newline
+
+\noindent At its most basic, a class includes the following
+\begin{itemize}
+    \item A set of instance variables, stored in its data block.
+    \item A set of functions, some of which are message handlers, invoked when an object of that class receives that specific message.
+\end{itemize}
+
+\noindent Control also includes the concept of single-inheritance, allowing classes to extend one another. A child class ("subclass") extending a parent class ("superclass") guarantees that the layout of the child class's data block is identical to the layout of the parent class's data block, up until the end of the parent class's data block, at which point the child may store any other fields afterwards. The child also inherits any and all message handlers from the parent, though it may also override them with its own. The child may access anything from the parent. \newline
+
+\noindent At runtime, several pieces of metadata are maintained about each class. This includes the size of the object's data block (used to determine how much memory to allocate when instantiating a new instance of said object), the dispatch table containing its handlers for all defined messages, and the layout of the data block, including the types, sizes, and offsets of all fields within the data block, used to help handle garbage collection. \newline
+
+\noindent There are many features that are not inherently supported by the ROB Virtual Machine but could be provided by a language compiler targeting it. For instance, operator and/or function overloading. 
+
+\subsubsection{Function Binding}
+In the ROB Virtual Machine, there are two types of bindings from an invocation to the code that handles it: static (compile-time) invocation via a function call, and dynamic (runtime) invocation via a message send. \newline
+
+\noindent In other words, while a subclass can access functions that are part of the superclass, if A extends B, and B.Foo() calls B.Bar(), and A overrides Bar but not Foo, when one calls A.Foo() (which will use B's implementation of Foo), that will call B's implementation of Bar, since that was resolved at compile-time. To ensure dynamic dispatch (essentially what would be considered in C++ to be a virtual function), an actor should send itself a message. \newline
+
+\noindent Actors can invoke their superclass's implementation for a given message.
+
+\subsection{Flow of Execution}
+All programs using the ROB Virtual Machine are structured into the same basic structure:
+\begin{itemize}
+    \item The host program, also known as the runtime environment: this is the main program, written in C or another language, that calls into the VM, and also provides services for bytecode to call
+    \item The virtual machine: this is the ROB VM that interprets the bytecode
+    \item The classes and objects: this is the ROB VM code that gets executed
+\end{itemize}
+
+\noindent As stated earlier, actors can indirectly call functions in other actors by sending messages. In fact, execution of Control code begins when, in response to some sort of outside event, the host program sends a message to an actor. \newline
+
+\noindent For example, a game may be designed with one large object representing the state of the game, which has an array of all of the game objects as a field. When it's time to render a new frame, the game sends a message to the main object, which in turn iterates over the game objects contained within. In a possible game design, all game objects could inherit from the Entity class, which has fields including position, orientation, and an opaque identifier representing its mesh, sprite, or other visual to draw. Whatever subclasses the game objects are, the Entity class takes care of those core elements. While the constructor for an Entity may take in the mesh, for instance, the constructors for the subclasses (which represent specific types of game entities) don't, instead calling the Entity constructor to initialize those fields, providing the appropriate graphical identifier. The main object would call services provided by the runtime environment to actually perform the drawing operation. \newline
+
+\noindent Some functions within an actor are called "just-in-time" in response to a message, meaning that as soon as the message is issued, the relevant function is called, and as soon as the handler returns, control is returned to the sender. Parameters for functions and messages are placed onto the stack, and the function has the possibility of placing return values onto the caller's stack (the number of entries on the stack to copy in other direction, as well as the types, are maintained as metadata). \newline
+
+\noindent Facilities are also provided for functions that continue to execute, top-to-bottom, while allowing other scripts to run at seemingly the same time. This is possible via a type of cooperative-multitasking known as coroutines, where scripts can yield (rather than returning), saving their current state to be resumed later. It is also possible to yield for a specific number of "ticks" (i.e. calls to the bytecode; this is only useful for code that is called at a periodic interval, such as in a video game), which will decrement the counter each time and then yield until the counter reaches 0. This gives the illusion that multiple scripts are running in parallel. \newline
+
+\noindent In both cases, it is possible for a "misbehaving" script to refuse to give up control, noticably affecting response time and breaking the illusion of multithreading. Remember that Control executes at a significant performance penalty compared to native code, running within an interpreter, and CPU time is at a premium on slower machines, especially when the scripts are executing alongside real-time game code. As such, it is incumbent upon script authors to keep scripts as short to execute as possible.
+
+\subsection{Exceptions}
+As with many programming languages, it is possible for errors to occur, so Control provides for multiple types of exceptions to be raised and cause the virtual machine to break into a debugger, allowing the programmer to inspect the cause of the exception. These include
+\begin{itemize}
+    \item The program has attempted to use a null reference
+    \item Arithmetic exception (i.e. divide-by-zero)
+    \item Array index out of bounds
+    \item The program has attempted to send a message to an actor that does not support that message
+    \item Stack overflow/underflow
+    \item Items besides return values are still present on the operand stack by the time of return
+    \item The handling of processor exceptions such as page faults (which could be caused by use of an invalid but non-null reference, likely caused by interpreting an integer as an object, something possible at the ROB VM layer but only in malformed bytecode that bypassed the Control compiler's type checker) is yet to be determined, as it may break into the native-code debugger in some or all cases
+\end{itemize}
+
+\subsection{Garbage Collection}
+A simple reference-counting based system is used to ensure that memory is automatically freed once no longer in use without forcing the programmer to manage it manually. The following actions increment the number of outstanding references to an object
+\begin{itemize}
+    \item Pushing a reference onto the stack
+    \item Storing a reference into a local variable, instance variable, or array index
+\end{itemize}
+
+\noindent The following actions decrement the number of outstanding references to an object
+\begin{itemize}
+    \item Popping a reference off of the stack
+    \item Overwriting the reference in a local variable, instance variable, or array index
+    \item Deletion of a containing object
+\end{itemize}
+
+\noindent An actor is initialized with a reference count of 0, but the reference count is only checked when decremented, so since its reference count is immediately incremented to 1 once pushed onto the stack for use, that is not problematic. \newline
+
+\noindent Deleting an object as soon as its reference count drops to 0 is problematic for numerous reasons. For instance, many operations that decrement a reference count are balanced with another operation that increments it. For example, when performing a function call, a parameter may be popped off of the stack (decrementing its reference count if it is an object type), which decrements its reference count, before it's placed into a local variable in the callee's stack frame (incrementing its reference count), causing a net change of zero. To avoid having to order certain operations in very specific ways in the VM, this was decided against, as will be described below. \newline
+
+\noindent There are, of course, cases where stack operations are "unbalanced" in ways that alter the object's reference count. For example, when a return value is unused, it may be "dropped" off of the stack (pushing it without placing it anywhere else). In cases where a reference may be needed twice in succession, it could also be duplicated, popping it once and pushing it twice. \newline
+
+\noindent For example, "instant destruction" is avoided in the case of a 3-D game. When two objects collide, collision messages will be sent to both objects, containing a reference to the other object. If the first object were to destroy itself before the second object's collision handler executes, the second object's collision handler would receive a bad reference. However, this is avoided, since the code that sent the messages to each object itself has a reference to both, meaning that both objects will remain valid at least until that code discards the references. \newline
+
+\noindent When an object's reference count reaches 0, it is added to a list of objects to be garbage-collected. When the garbage collector runs (in a game, it may run once every frame), it will iterate over each object and check if it's reference count is still 0. If so, it will first iterate through any objects contained within it and decrement their reference counts before freeing the outer object. This is a recursive process that goes all the way down the chain; if a contained object's reference count reaches 0, it will be garbage-collected in the same manner. \newline
+
+\noindent The garbage collector identifies contained objects based on whether the object is an array (of object references) or not. If it is an array of references, the garbage collector iterates through each element, and for each non-NULL reference within, decrements its reference count. For other object types, the garbage collector iterates through all fields of the object that contain references, and if they are non-NULL, decrements their reference count in the same manner.
+
+\section{Syntax}
+The syntax of the Control programming language was designed to be easy to pick up for programmers familiar with languages such as C++ and Java, though it is yet to be finalized. As such, all example code will use a preliminary syntax. \newline
+
+\noindent To declare a function, use the keyword "fn" and to declare a message handler, use the keyword "msg"
+
+\section{A Practical Example}
+To better illustrate the usage patterns of Control, a simple application will be devised, structured, and implemented within Control.
+
+\subsection{Overview}
+The game is a simple 3-D space flight combat simulator ("Wingman") that is played from a first-person (POV) perspective. The player controls a space fighter, moving through space, which can fire a weapon. That weapon has a certain maximum rate of fire as well as a power draw, a certain power capacity in the fighter, and a rate of recharge. The player will encounter asteroids, which are stationary objects that can damage the player (and destroy themselves) on contact but take a few laser hits to destroy. The player will also encounter hostile objects: computer-controlled turrets, which are stationary but will aim to face the player and open fire, as well as computer-controlled fighter craft, which will angle to destroy the player. Every time the player successfully destroys something, it adds to the player's score. \newline
+
+\noindent A very basic HUD will be displayed on top of the game world, including the player's score, health bar, and current charge status of their laser weapon. \newline
+
+\noindent This concept could be expanded to include multiplayer or any number of other features, but this is the basic arrangement. particle system?
+
+\subsection{Class Hierarchy and Object Interactions}
+\subsubsection{Game}
+The top-level object within the game will be the \textbf{Game} object. The \textbf{Game} object contains all of the core game state, including
+\begin{itemize}
+    \item A list of entities spawned into the game world (stored as an Object array)
+    \item The entity that currently has camera focus (i.e. the player)
+    \item Other bits of game state could be added pertaining to which "level" the player is in (score, flags for how far the player has gotten, potentially another object with a message handler to track state for the specific level, etc.)
+\end{itemize}
+
+\noindent The game engine sends three types of messages to the \textbf{Game} object in order to operate the game, described at a very high level
+\begin{itemize}
+    \item \textit{Game\_Init}: The "constructor" for the \textbf{Game} object, used to initialize it. In this example, it spawns all of the objects into the game's 3-D world
+    \item \textit{onTick}: Sent once per "tick" of wall clock time in order to advance the state of the game. This iterates through all entities to in turn send them \textit{onTick} messages to tick them along (should onTick/onCollide return a value to indicate despawning?), and also calculates collisions between entities, sending both entities involved in any collision \textit{onCollide} messages with a reference to the other object
+    \item \textit{onDraw}: Sent once per frame, to render the game. This in turn first renders the game's 3-D elements, then draws the HUD on top.
+\end{itemize}
+
+\subsubsection{Entities}
+An \textbf{Entity} represents an object that exists within the 3-D world of the game. All entities in the game have a few things in common. For one, they all include a position (represented as a vector). Entities also need to be able to be drawn, so they include an orientation (quaternion) and an opaque identifier representing a 3-D model mesh. Additionally, all entities must include a collider, which, when combined with the object's position and orientation, can determine whether the entity is colliding with another. \newline
+
+\noindent Here's a list of all of the types of objects that can exist within the 3-D world of the game, along with their behaviors.
+
+\paragraph{Laser Bolt}
+The laser bolt has three primary state variables - its current direction vector, its damage, and its remaining lifetime (a potential add-on could make the laser's damage decrease over time). Every tick, it moves along its current direction vector and decrements its remaining lifetime, despawning itself if the remaining lifetime equals 0. If the laser bolt collides with another object, it despawns itself; the logic for inflicting damage is implemented on the receiving object.
+
+\noindent The laser bolt is initialized with only three arguments: its position, its direction, and its collision mask (which indicates which objects it can collide with). It calls the Entity constructor with that position, mask, and a predefined laser mesh.
+
+\paragraph{Debris}
+The debris has two primary state variables - its current direction vector and its remaining lifetime. Every tick, the debris object rotates itself, adds the direction vector to its current position, and decrements its remaining lifetime, despawning itself if it's 0.
+
+\noindent Debris objects cannot collide with other objects, and the collision handler is a no-op as a result.
+
+\noindent When certain types of objects are destroyed, they spawn large numbers of Debris entities from their current position, which fly off in random directions while spinning continuously before eventually disappearing. To avoid the shards of debris looking too "artificial", all rotating in the exact same way and despawning at the exact same time, the initial orientation and lifetime are generated randomly, along with the direction vector. The spawning object needs only provide the position, which is passed (along with the initial orientation, predefined mesh, etc) to the Entity constructor.
+
+\paragraph{Asteroid}
+The asteroid has one state variable - its HP. It does nothing when ticked, as it is stationary. If queried for the amount of damage it inflicts, it returns a constant value.
+
+\noindent When another object collides with it, the asteroid queries the amount of damage from the colliding object, and subtracts that from its own health. If the result is less than or equal to 0, it despawns itself and spawns debris actors.
+
+\noindent The initializer for an asteroid takes in a position and orientation, providing those along with the constant asteroid mesh to the Entity constructor.
+
+\paragraph{Computer-Controlled Turret}
+The computer-controlled turret has a few state variables - its HP, current target, etc.
+
+(how to handle the target object being destroyed? if the turret is continually holding a reference to it)
+
+\paragraph{Computer-Controlled Fighter}
+
+\paragraph{Player-Controlled Fighter}
+
+\paragraph{Inheritance}
+Some functionality is common to more than one type of Entity. For example, asteroids, turrets, and fighters all handle damage in essentially the same way, so they can be grouped under the \textbf{DestructibleEntity} class, which includes the collision handler and HP. The computer-controlled fighter (\textbf{AIFighter}) and player-controlled fighter (\textbf{PlayerFighter}) work very similarly, so they can also be grouped under a common \textbf{Fighter} class. While the \textbf{AIFighter} makes its decisions based on the game state and the \textbf{PlayerFighter} makes its decisions based on user input, they can both "decide" what action to take in the tick handler in their own way, and then send themselves a message to take the appropriate action. The \textbf{AutoTurret} has one element in common with the fighters that it does not share with other destructible entities; it shoots lasers. As such, both the \textbf{Fighter} and \textbf{AutoTurret} can share a type of member; a \textbf{LaserEmitter}. The \textbf{LaserEmitter} takes care of handling recharge time, spawning the laser bolts, et cetera; the controlling actor only needs to send it a message.
+
+\subsection{Game}
+NOTE: A pending design decision will influence how the Game object works. There are cases in which objects must send messages to the Game object. To avoid sending it as a parameter, there are two main choices; include a small global variable area (analogous to how static classes could be used for this purpose) and put the Game object inside it, or treat the "ultimate parent" with some special significance within the language. \newline
+
+\begin{verbatim}
+interface Game { // Interface specifying messages that all games must handle
+    msg void Init();
+    msg void Tick();
+    msg void Draw();
+}
+
+class Wingman implements Game {
+    var Entities:Object[];  // The list of all game entities
+    var FocusEntity:Object; // The entity that the camera is currently focusing on
+
+    msg void Init () {
+        // Create array of game objects
+
+        // Spawn the player's fighter into the world
+
+        // Spawn all of the asteroids
+    }
+
+    msg void Tick() {
+        // Iterate over all objects to check for collisions
+        //  If so, send them a collision message
+
+        // Iterate over all objects to call their Tick method
+    }
+
+    fn void Draw3DScene() {
+        // Set view matrix based on position and orientation of FocusEntity
+        
+        // Iterate over each object in the world, getting its position,
+        // orientation, and mesh, and submitting them to the renderer.
+    }
+
+    msg void Draw() {
+        Draw3DScene();
+        // Draw HUD
+    }
+}
+\end{verbatim}
+
+\subsection{Entity}
+
+\subsection{LaserEmitter}
+\begin{verbatim}
+// Expansion: Add version that shoots with bias (alternate between shooting left and shooting right)
+class LaserEmitter {
+    var Shooter:Object;         // The actor that fires the lasers
+    var Battery:int;            // The current charge status of the battery
+    var BatteryCapacity:int;    // The maximum capacity in power units of the battery
+    var PowerDraw:int;          // The number of power units that each shot takes
+    var Delay:int;              // The delay (in ticks) between shots
+    var Cooldown:int;           // The number of ticks that must elapse before the next shot can be fired
+
+    msg void Init (Object shooter, int battery, int draw, int delay) {
+        Shooter = shooter;
+        Battery = battery;
+        BatteryCapacity = battery;
+        PowerDraw = draw;
+        Delay = delay;
+        Cooldown = 0;
+    }
+
+    msg void Tick () {
+        if (Battery < BatteryCapacity) BatteryCapacity++;
+        if (Cooldown > 0) Cooldown--;
+    }
+
+    msg void Fire () {
+        if (Battery >= PowerDraw && Cooldown == 0) {
+            Game:Spawn(new LaserBolt(Shooter:GetPosition(), Shooter:GetOrientation())); // the initiializer should take a class ID which is used to decide which laser to spawn (this includes the collision mask)?
+            Battery -= PowerDraw;
+            Cooldown = Delay;
+        }
+    }
+
+    msg int GetBatteryCharge () {
+        return Battery;
+    }
+
+    msg int GetBatteryCapacity () {
+        return BatteryCapacity;
+    }
+}
+
+// This could actually be problematic as recursive/circular references wreak havoc on reference-counting
+// Solution: Weak references?
+\end{verbatim}
+
+The turret tracking the player deletes the reference if HP is 0 or it's out of range
+Use weak ref for circular reference, should only be used for a child object that has a reference to its owner parent
+
+\end{document}
